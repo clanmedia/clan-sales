@@ -7,6 +7,10 @@ window.CLAN_CONFIG = {
   CLIENTS_PHONE: '01556639413',   // رقم العملا
   SITE_URL: 'https://clanagency.it.com/',
 
+  // الحماية من البوتات (Cloudflare Turnstile): حط هنا الـ Site Key (العام، مش السري)
+  // وسيبه فاضي '' لو الـ CAPTCHA مقفولة في Supabase
+  TURNSTILE_SITE_KEY: '',
+
   // ما تغيّرش السطر ده بعد ما المسوقين يبدأوا يسجلوا
   EMAIL_DOMAIN: 'sales.clanagency.it.com'
 };

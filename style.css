@@ -182,3 +182,5 @@ a.guide-cta { display: flex; align-items: center; justify-content: space-between
 .ledit-in { display: grid; gap: 12px; max-width: 780px; }
 .nbadge { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 99px; background: var(--gold); color: #1E1503; font-size: 12px; font-weight: 700; }
 .seg .cnt { font-size: 12px; opacity: .8; }
+
+.cap { min-height: 65px; display: flex; justify-content: center; }

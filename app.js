@@ -26,7 +26,7 @@ const ACTIONS = {
   add_sale: 'سجّل بيعة', cancel_sale: 'لغى بيعة', payout: 'سجّل تحويل', block: 'وقّف حساب', unblock: 'فعّل حساب',
   reset_password: 'غيّر باسورد', set_role: 'غيّر صلاحية', set_manager: 'نقل موظف لأدمن', fire: 'رفد', setting: 'غيّر إعداد',
   content_add: 'أضاف محتوى', content_edit: 'عدّل محتوى', content_delete: 'مسح محتوى', news_add: 'نشر خبر', news_edit: 'عدّل خبر',
-  news_pin: 'ثبّت خبر', news_unpin: 'شال تثبيت خبر', news_delete: 'مسح خبر', export: 'صدّر بيانات', update_payout_info: 'غيّر رقم التحويل',
+  news_pin: 'ثبّت خبر', news_unpin: 'شال تثبيت خبر', news_delete: 'مسح خبر', export: 'صدّر بيانات', update_payout_info: 'غيّر رقم التحويل', verify_payout: 'أكّد رقم تحويل', backup: 'نزّل نسخة احتياطية',
   lead_add: 'سجّل عميل جديد', lead_assign: 'وزّع طلب', lead_status: 'غيّر حالة طلب'
 };
 const isStaff = () => ME && STAFF.includes(ME.role);
@@ -86,6 +86,7 @@ function errMsg(e) {
   if (/Password should be at least|weak password/i.test(m)) return `الباسورد ضعيف. لازم ${MIN_PW} حروف أو أرقام على الأقل`;
   if (/Database error saving new user/i.test(m)) return 'في مشكلة في بياناتك. راجع الاسم ورقم الموبايل وجرّب تاني';
   if (/rate limit|too many/i.test(m)) return 'محاولات كتير ورا بعض. استنى دقيقة وجرّب تاني';
+  if (/captcha/i.test(m)) return 'التحقق إنك مش روبوت ما نجحش. استنى العلامة ✓ وجرّب تاني';
   if (/Failed to fetch|NetworkError|network/i.test(m)) return 'في مشكلة في النت. اتأكد إنك متصل وجرّب تاني';
   if (/FORBIDDEN/.test(m)) return 'مش مسموحلك تعمل ده';
   if (/JWT|session/i.test(m)) return 'الجلسة خلصت. ادخل تاني';
@@ -201,12 +202,39 @@ window.addEventListener('hashchange', route);
 $('#logoutBtn').addEventListener('click', async () => { await sb.auth.signOut(); ME = null; go('login'); });
 
 /* ================= الدخول والتسجيل ================= */
+// CAPTCHA (Cloudflare Turnstile): بتشتغل لوحدها لما يتحط TURNSTILE_SITE_KEY في config.js
+let tsLoad = null;
+function loadTurnstile() {
+  if (!tsLoad) tsLoad = new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+    s.async = true; s.onload = () => res(window.turnstile); s.onerror = () => { tsLoad = null; rej('ما قدرناش نحمّل التحقق. اتأكد من النت وجرّب تاني'); };
+    document.head.append(s);
+  });
+  return tsLoad;
+}
+function mountCaptcha(el) {
+  if (!C.TURNSTILE_SITE_KEY) return { token: async () => undefined, reset() {} };
+  el.hidden = false;
+  let tok = null, id = null, ts = null;
+  const ready = loadTurnstile().then(t => {
+    ts = t;
+    id = t.render(el, { sitekey: C.TURNSTILE_SITE_KEY, language: 'ar', theme: 'auto',
+      callback: v => { tok = v; }, 'expired-callback': () => { tok = null; }, 'error-callback': () => { tok = null; } });
+  });
+  return {
+    async token() { await ready; if (!tok) throw 'استنى لحد ما علامة التحقق تخلص (✓) وبعدين جرّب تاني'; return tok; },
+    reset() { tok = null; if (ts && id !== null) ts.reset(id); }
+  };
+}
+
 function loginPage() {
   view(`
   <form class="card narrow" id="lf" novalidate>
     <div class="stack"><h1>أهلًا بيك 👋</h1><p class="lead">ادخل برقم موبايلك والباسورد.</p></div>
     <label class="f">رقم الموبايل<input id="l-phone" type="tel" inputmode="tel" dir="ltr" autocomplete="tel" placeholder="01xxxxxxxxx"></label>
     <label class="f">الباسورد<input id="l-pw" type="password" autocomplete="current-password"></label>
+    <div class="cap" id="l-cap" hidden></div>
     <div class="err" id="l-err" hidden></div>
     <button class="btn" id="l-btn">دخول</button>
     <p class="muted" style="font-size:13.5px">نسيت الباسورد؟ كلّمنا واتساب <b class="ltr">${esc(C.SUPPORT_PHONE)}</b> وابعت كودك.</p>
@@ -217,6 +245,7 @@ function loginPage() {
     <p class="muted">عندك أسئلة قبل ما تبدأ؟ <a href="#guide">اقرأ الدليل والأسئلة الشائعة</a></p>
   </div>
   <p class="foot"><a href="${esc(C.SITE_URL)}" target="_blank" rel="noopener">موقع Clan Agency</a></p>`);
+  const cap = mountCaptcha($('#l-cap'));
   $('#lf').addEventListener('submit', async e => {
     e.preventDefault(); showErr($('#l-err'), '');
     const phone = $('#l-phone').value, pw = $('#l-pw').value;
@@ -224,8 +253,9 @@ function loginPage() {
     if (!pw) return showErr($('#l-err'), 'اكتب الباسورد');
     try {
       await busy($('#l-btn'), 'بندخّلك…', async () => {
-        const { error } = await sb.auth.signInWithPassword({ email: phoneEmail(phone), password: pw });
-        if (error) throw errMsg(error);
+        const captchaToken = await cap.token();
+        const { error } = await sb.auth.signInWithPassword({ email: phoneEmail(phone), password: pw, options: captchaToken ? { captchaToken } : undefined });
+        if (error) { cap.reset(); throw errMsg(error); }
       });
       ME = null; go('home');
     } catch (m) { showErr($('#l-err'), m); }
@@ -251,10 +281,12 @@ function signupPage() {
       <label class="f">الباسورد<input id="s-pw" type="password" autocomplete="new-password" placeholder="8 حروف أو أرقام على الأقل"></label>
       <label class="f">اكتب الباسورد تاني<input id="s-pw2" type="password" autocomplete="new-password"></label>
     </div>
+    <div class="cap" id="s-cap" hidden></div>
     <div class="err" id="s-err" hidden></div>
     <button class="btn gold" id="s-btn">سجّلني وطلّعلي الكود</button>
     <p class="muted" style="text-align:center">عندك حساب؟ <a href="#login">ادخل من هنا</a> · <a href="#guide">الأسئلة الشائعة</a></p>
   </form>`);
+  const cap = mountCaptcha($('#s-cap'));
   $('#sf').addEventListener('submit', async e => {
     e.preventDefault();
     const err = $('#s-err'); showErr(err, '');
@@ -274,11 +306,12 @@ function signupPage() {
     if (pw !== pw2) return showErr(err, 'الباسوردين مش زي بعض');
     try {
       const data = await busy($('#s-btn'), 'بنسجّلك…', async () => {
+        const captchaToken = await cap.token();
         const { data, error } = await sb.auth.signUp({
           email: phoneEmail(phone), password: pw,
-          options: { data: { name, age: String(age), gov, exp, phone, pay_method: method, pay_number: pay } }
+          options: Object.assign({ data: { name, age: String(age), gov, exp, phone, pay_method: method, pay_number: pay } }, captchaToken ? { captchaToken } : {})
         });
-        if (error) throw errMsg(error);
+        if (error) { cap.reset(); throw errMsg(error); }
         return data;
       });
       if (!data.session) return showErr(err, 'اتسجلت، بس الدخول مقفول لحد ما الإدارة تقفل «Confirm email» في إعدادات Supabase. كلّمنا على ' + C.SUPPORT_PHONE);
@@ -499,6 +532,7 @@ async function accountPage() {
   </div>
   <form class="card" id="pf" novalidate>
     <h2>العمولة تتحوّلي على</h2>
+    ${me.role === 'marketer' ? `<p class="${me.payout_verified ? 'okbox' : 'note'}" style="margin:0">${me.payout_verified ? '✓ الإدارة اتأكدت من رقم التحويل بتاعك.' : 'الإدارة هتكلمك تتأكد من رقم التحويل قبل أول تحويل.'} لو غيّرت الرقم، هيتأكد منه تاني.</p>` : ''}
     <div class="choice">${METHODS.map(m => `<label><input type="radio" name="p-m" value="${esc(m)}"${m === me.pay_method ? ' checked' : ''}>${esc(m)}</label>`).join('')}</div>
     <label class="f">رقم التحويل<input id="p-num" type="tel" dir="ltr" value="${esc(me.pay_number || '')}"></label>
     <div class="err" id="p-err" hidden></div>
@@ -559,6 +593,9 @@ async function aDashPage() {
   <div class="card">
     <div class="head"><h1>الملخص</h1><div class="actions"><button class="btn ghost sm" id="d-ref">تحديث</button><button class="btn ghost sm" id="d-exp">تصدير Excel</button></div></div>
     ${d.scope === 'admin' ? `<p class="note">أرقام البيعات والتحويلات هنا بتاعتك إنت وموظفينك (${num(d.team_size)} في الفريق).</p>` : ''}
+    ${d.scope === 'super_admin' && (!d.last_backup || Date.now() - new Date(d.last_backup).getTime() > 7 * 86400000)
+      ? `<div class="err" style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center"><span>${d.last_backup ? `آخر نسخة احتياطية كانت ${fdate(d.last_backup)}، من أكتر من أسبوع.` : 'لسه ما نزّلتش أي نسخة احتياطية.'} نزّل نسخة دلوقتي عشان البيانات ما تضيعش.</span><a class="btn sm" href="#a-settings">نزّل نسخة</a></div>` : ''}
+    ${d.unverified_owed ? `<p class="note">${num(d.unverified_owed)} مسوق ليهم فلوس ورقم تحويلهم لسه ما اتأكدش. هتأكده أول مرة تحوّل لكل واحد.</p>` : ''}
     <div class="stats">
       <div class="stat hl"><small>مستحق للمسوقين</small><b>${money(d.owed_total)}</b></div>
       <div class="stat"><small>بيعات الأسبوع${d.scope === 'admin' ? ' (فريقك)' : ''}</small><b>${num(d.sales_week)}</b></div>
@@ -575,7 +612,7 @@ async function aDashPage() {
   </div>
   <div class="card"><h2>محتاجين يتحوّلهم</h2>
     <div class="list" id="owed">${d.owed.length ? d.owed.map(m => `
-      <div class="item"><div class="main"><b>${esc(m.name)} <span class="ltr sub">${esc(m.code)}</span></b><span class="sub">${esc(m.pay_method || '')} · <span class="ltr">${esc(m.pay_number || '')}</span></span></div>
+      <div class="item"><div class="main"><b>${esc(m.name)} <span class="ltr sub">${esc(m.code)}</span></b><span class="sub">${esc(m.pay_method || '')} · <span class="ltr">${esc(m.pay_number || '')}</span>${m.payout_verified ? '' : ' · <span class="pill no">رقم مش متأكد</span>'}</span></div>
       <div class="end"><span class="amt">${money(m.balance)}</span><button class="btn sm gold" data-pay="${esc(m.code)}">حوّل</button></div></div>`).join('')
       : '<p class="empty">مفيش عمولات مستحقة دلوقتي ✓</p>'}</div>
   </div>
@@ -655,16 +692,25 @@ function aPayPage() {
       <label class="f">اتحوّل على<select id="p-method">${opts(METHODS)}</select></label>
     </div>
     <label class="f">ملاحظات <span class="opt">(مثلًا رقم العملية)</span><input id="p-notes"></label>
+    <div class="note" id="p-verify-box" hidden>
+      <b>⚠️ رقم التحويل ده لسه ما اتأكدش.</b> أي حد يقدر يسجّل برقم مش بتاعه، فقبل أول تحويل كلّم المسوق
+      على رقم موبايله واتأكد إن رقم التحويل بتاعه فعلًا.
+      <label class="f" style="display:flex;align-items:center;gap:8px;margin-top:8px"><input type="checkbox" id="p-verify" style="width:auto"> اتصلت بالمسوق واتأكدت إن الرقم ده بتاعه</label>
+    </div>
     <div class="err" id="p-err" hidden></div>
     <button class="btn gold" id="p-btn">سجّل التحويل</button>
   </form>
   <div id="p-ok"></div>`);
   const inp = $('#p-code');
+  let verified = true;
   const run = codePeek(inp, $('#p-peek'), a => {
+    $('#p-verify-box').hidden = true; verified = true;
     if (!a) return;
     $('#p-amount').value = a.balance > 0 ? a.balance : '';
     if (a.pay_method) $('#p-method').value = a.pay_method;
-    $('#p-peek').innerHTML += `<br>التحويل على ${esc(a.pay_method || '')}: <b class="ltr">${esc(a.pay_number || '')}</b>`;
+    $('#p-peek').innerHTML += `<br>التحويل على ${esc(a.pay_method || '')}: <b class="ltr">${esc(a.pay_number || '')}</b> ${a.payout_verified ? '<span class="pill ok">متأكدين منه ✓</span>' : '<span class="pill no">مش متأكد</span>'}`
+      + (a.same_payout && a.same_payout.length ? `<br><b style="color:var(--bad)">تنبيه: نفس رقم التحويل مستخدم في: ${a.same_payout.map(esc).join('، ')}</b>` : '');
+    verified = !!a.payout_verified; $('#p-verify-box').hidden = verified; $('#p-verify').checked = false;
   });
   if (PREFILL) { inp.value = PREFILL; PREFILL = null; run(); }
   $('#pf').addEventListener('submit', async e => {
@@ -672,8 +718,10 @@ function aPayPage() {
     const amount = Number(digits($('#p-amount').value).replace(/[^\d.]/g, ''));
     if (!inp.value.trim()) return showErr($('#p-err'), 'اكتب كود المسوق');
     if (!(amount > 0)) return showErr($('#p-err'), 'اكتب المبلغ');
+    if (!verified && !$('#p-verify').checked) return showErr($('#p-err'), 'اتأكد من رقم التحويل الأول وعلّم على المربع');
     try {
-      const r = await busy($('#p-btn'), 'بنسجّل…', () => rpc('admin_add_payout', { p_code: inp.value, p_amount: amount, p_method: $('#p-method').value, p_notes: $('#p-notes').value }));
+      const r = await busy($('#p-btn'), 'بنسجّل…', () => rpc('admin_add_payout', { p_code: inp.value, p_amount: amount, p_method: $('#p-method').value, p_notes: $('#p-notes').value, p_verified: !verified && $('#p-verify').checked }));
+      if (!verified) { verified = true; $('#p-verify-box').hidden = true; }
       $('#p-ok').innerHTML = `<div class="okbox">✓ اتسجل التحويل لـ ${esc(r.name)}. الباقي ليه دلوقتي ${money(r.balance)}.</div>`;
       $('#p-amount').value = ''; $('#p-notes').value = ''; toast('التحويل اتسجل ✓');
     } catch (m) { showErr($('#p-err'), m); }
@@ -725,7 +773,9 @@ function aMkPage() {
     <div class="card">
       <div class="head"><div class="stack"><h2>${esc(a.name)} <span class="ltr">${esc(a.code)}</span></h2>
         <span class="muted" style="font-size:13.5px">${esc(a.age || '')} سنة · ${esc(a.gov || '')} · خبرة: ${esc(a.exp || '-')} · اتسجل ${fdate(a.created_at)}</span>
-        <span class="muted" style="font-size:13.5px">موبايل <span class="ltr">${esc(a.phone)}</span> · ${esc(a.pay_method || '')} <span class="ltr">${esc(a.pay_number || '')}</span></span></div>
+        <span class="muted" style="font-size:13.5px">موبايل <span class="ltr">${esc(a.phone)}</span> · ${esc(a.pay_method || '')} <span class="ltr">${esc(a.pay_number || '')}</span>
+          ${a.payout_verified ? `<span class="pill ok">رقم التحويل متأكد ✓</span>` : `<span class="pill no">رقم التحويل مش متأكد</span>`}</span>
+        ${a.same_payout && a.same_payout.length ? `<span style="color:var(--bad);font-weight:600;font-size:13.5px">⚠️ نفس رقم التحويل مستخدم في: ${a.same_payout.map(esc).join('، ')}</span>` : ''}</div>
         ${pill(a.status)}</div>
       <div class="stats">
         <div class="stat hl"><small>الباقي ليه</small><b>${money(a.balance)}</b></div>
@@ -1122,6 +1172,12 @@ async function aSettingsPage() {
   const levels = Array.isArray(s.levels) ? s.levels : [];
   while (levels.length < 4) levels.push({ name: '', min: '' });
   view(`
+  <div class="card" id="st-b">
+    <div class="stack"><h1>نسخة احتياطية</h1>
+      <p class="lead">ملف فيه كل البيانات: الحسابات والبيعات والتحويلات والطلبات والمحتوى وسجل العمليات. نزّل نسخة كل أسبوع واحفظها في مكان آمن (مثلًا Google Drive بتاع الشركة).</p>
+      <p class="muted" style="font-size:13.5px">⚠️ الملف فيه أرقام موبايلات وبيانات المسوقين، فما تبعتهوش لحد. الباسوردات مش جواه.</p></div>
+    <div class="actions"><button class="btn" id="st-b-btn">نزّل نسخة احتياطية دلوقتي</button><span class="muted" id="st-b-msg"></span></div>
+  </div>
   <form class="card" id="st-c" novalidate>
     <h1>الإعدادات</h1>
     <label class="f">العمولة على كل بيعة (جنيه) <span class="opt">(بتسري على البيعات الجديدة بس)</span><input id="st-com" inputmode="decimal" dir="ltr" value="${esc(s.commission)}"></label>
@@ -1139,6 +1195,14 @@ async function aSettingsPage() {
     <label class="f">كل خدمة في سطر <span class="opt">(بتظهر في «بيعة جديدة»)</span><textarea id="st-sv" rows="8">${esc((s.services || []).join('\n'))}</textarea></label>
     <button class="btn" id="st-s-btn">احفظ الخدمات</button>
   </form>`);
+  $('#st-b-btn').addEventListener('click', e => busy(e.target, 'بنجهّز…', async () => {
+    const data = await rpc('super_backup');
+    const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = `clan-sales-backup-${cairoToday()}.json`;
+    document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    $('#st-b-msg').textContent = `✓ اتنزّلت: ${num(data.profiles.length)} حساب، ${num(data.sales.length)} بيعة، ${num(data.leads.length)} طلب`;
+  }).catch(m => toast(m)));
   $('#st-c').addEventListener('submit', async e => {
     e.preventDefault();
     const v = Number(digits($('#st-com').value));
