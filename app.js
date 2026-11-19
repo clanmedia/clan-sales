@@ -26,7 +26,7 @@ const ACTIONS = {
   add_sale: 'سجّل بيعة', cancel_sale: 'لغى بيعة', payout: 'سجّل تحويل', block: 'وقّف حساب', unblock: 'فعّل حساب',
   reset_password: 'غيّر باسورد', set_role: 'غيّر صلاحية', set_manager: 'نقل موظف لأدمن', fire: 'رفد', setting: 'غيّر إعداد',
   content_add: 'أضاف محتوى', content_edit: 'عدّل محتوى', content_delete: 'مسح محتوى', news_add: 'نشر خبر', news_edit: 'عدّل خبر',
-  news_pin: 'ثبّت خبر', news_unpin: 'شال تثبيت خبر', news_delete: 'مسح خبر', export: 'صدّر بيانات', update_payout_info: 'غيّر رقم التحويل', verify_payout: 'أكّد رقم تحويل', backup: 'نزّل نسخة احتياطية',
+  news_pin: 'ثبّت خبر', news_unpin: 'شال تثبيت خبر', news_delete: 'مسح خبر', export: 'صدّر بيانات', update_payout_info: 'غيّر رقم التحويل', verify_payout: 'أكّد رقم تحويل', backup: 'نزّل نسخة احتياطية', telegram_settings: 'غيّر إعدادات تليجرام',
   lead_add: 'سجّل عميل جديد', lead_assign: 'وزّع طلب', lead_status: 'غيّر حالة طلب'
 };
 const isStaff = () => ME && STAFF.includes(ME.role);
@@ -1178,6 +1178,7 @@ async function aSettingsPage() {
       <p class="muted" style="font-size:13.5px">⚠️ الملف فيه أرقام موبايلات وبيانات المسوقين، فما تبعتهوش لحد. الباسوردات مش جواه.</p></div>
     <div class="actions"><button class="btn" id="st-b-btn">نزّل نسخة احتياطية دلوقتي</button><span class="muted" id="st-b-msg"></span></div>
   </div>
+  <div class="card" id="tg"><p class="empty">بنحمّل إعدادات تليجرام…</p></div>
   <form class="card" id="st-c" novalidate>
     <h1>الإعدادات</h1>
     <label class="f">العمولة على كل بيعة (جنيه) <span class="opt">(بتسري على البيعات الجديدة بس)</span><input id="st-com" inputmode="decimal" dir="ltr" value="${esc(s.commission)}"></label>
@@ -1203,6 +1204,7 @@ async function aSettingsPage() {
     document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
     $('#st-b-msg').textContent = `✓ اتنزّلت: ${num(data.profiles.length)} حساب، ${num(data.sales.length)} بيعة، ${num(data.leads.length)} طلب`;
   }).catch(m => toast(m)));
+  telegramCard($('#tg'));
   $('#st-c').addEventListener('submit', async e => {
     e.preventDefault();
     const v = Number(digits($('#st-com').value));
@@ -1227,6 +1229,80 @@ async function aSettingsPage() {
     try { await busy($('#st-s-btn'), 'بنحفظ…', () => rpc('super_set_setting', { p_key: 'services', p_value: list })); SERVICES = list; toast('اتحفظ ✓'); }
     catch (m) { toast(m); }
   });
+}
+
+/* ---------- إشعارات تليجرام (السوبر أدمن) ---------- */
+async function telegramCard(box) {
+  let st;
+  try { st = await rpc('super_telegram_status'); } catch (m) { box.innerHTML = `<p class="err">${esc(m)}</p>`; return; }
+  const ready = st.has_token && st.chat_id;
+  box.innerHTML = `
+    <div class="stack"><h1>إشعارات تليجرام</h1>
+      <p class="lead">رسالة على جروب تليجرام بتاع الإدارة مع كل طلب عميل جديد وكل بيعة جديدة، عشان ما يفوتكوش شغل.</p></div>
+    <div class="list">
+      <div class="item"><span>البوت</span>${st.has_token ? '<span class="pill ok">متوصل ✓</span>' : '<span class="pill no">لسه</span>'}</div>
+      <div class="item"><span>الجروب</span>${st.chat_id ? `<span class="pill ok">${esc(st.chat_title || st.chat_id)} ✓</span>` : '<span class="pill no">لسه</span>'}</div>
+      ${st.sender_ready ? '' : '<div class="item"><span class="err">خدمة الإرسال (pg_net) مش متفعلة في قاعدة البيانات</span></div>'}
+    </div>
+    ${ready ? `<div class="row2">
+        <label class="f" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="tg-l" style="width:auto"${st.notify_leads ? ' checked' : ''}> ابعت مع كل طلب عميل جديد</label>
+        <label class="f" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="tg-s" style="width:auto"${st.notify_sales ? ' checked' : ''}> ابعت مع كل بيعة جديدة</label></div>
+      <div class="actions"><button class="btn" id="tg-test">ابعت رسالة تجربة</button><button class="btn ghost sm" id="tg-redo">غيّر البوت أو الجروب</button></div>` : ''}
+    <div id="tg-setup" ${ready ? 'hidden' : ''} style="display:grid;gap:12px">
+      <ol style="margin:0;padding-inline-start:20px;display:grid;gap:6px">
+        <li>في تليجرام افتح <b class="ltr">@BotFather</b>، وابعت <b class="ltr">/newbot</b>، واختار اسم للبوت (مثلًا Clan Sales Bot).</li>
+        <li>BotFather هيبعتلك <b>مفتاح</b> شكله كده: <span class="ltr">123456789:AAH…</span> انسخه.</li>
+        <li>اعمل جروب للإدارة (أو استخدم جروب موجود)، وضيف البوت فيه، وابعت أي رسالة في الجروب.</li>
+        <li>الزق المفتاح هنا ودوس «احفظ»، وبعدين «دوّر على الجروب».</li>
+      </ol>
+      <p class="muted" style="font-size:13.5px">المفتاح بيتحفظ جوه قاعدة البيانات بس، ومحدش يقدر يشوفه تاني من الموقع، حتى إنت. ما تبعتهوش لحد.</p>
+      <div class="row2" style="grid-template-columns:1fr auto">
+        <input id="tg-token" type="password" dir="ltr" autocomplete="off" placeholder="${st.has_token ? 'المفتاح محفوظ. الزق مفتاح جديد لو عايز تغيّره' : 'الزق مفتاح البوت هنا'}">
+        <button class="btn" id="tg-save">احفظ</button>
+      </div>
+      <div class="actions"><button class="btn ghost" id="tg-detect"${st.has_token ? '' : ' disabled'}>دوّر على الجروب</button></div>
+      <div class="list" id="tg-chats"></div>
+    </div>
+    <div class="err" id="tg-err" hidden></div>`;
+  const err = m => showErr($('#tg-err', box), m);
+  const again = () => telegramCard(box);
+  const on = (sel, ev, fn) => { const el = $(sel, box); if (el) el.addEventListener(ev, fn); };
+  on('#tg-redo', 'click', () => { $('#tg-setup', box).hidden = false; });
+  on('#tg-save', 'click', async e => {
+    err(''); const t = $('#tg-token', box).value.trim();
+    if (!t) return err('الزق مفتاح البوت الأول');
+    try { await busy(e.target, '…', () => rpc('super_telegram_save', { p_token: t })); $('#tg-token', box).value = ''; toast('المفتاح اتحفظ ✓ دوّر على الجروب'); again(); }
+    catch (m) { err(m); }
+  });
+  on('#tg-detect', 'click', async e => {
+    err(''); const list = $('#tg-chats', box);
+    try {
+      await busy(e.target, 'بندوّر…', async () => {
+        const req = await rpc('super_telegram_detect');
+        let r = { pending: true };
+        for (let i = 0; i < 10 && r.pending; i++) { await new Promise(x => setTimeout(x, 1000)); r = await rpc('super_telegram_detect_result', { p_req: req }); }
+        if (r.pending) throw 'تليجرام ما ردّش. جرّب تاني';
+        if (r.error) throw r.error;
+        const chats = (r.chats || []).filter(c => c.type !== 'private');
+        list.innerHTML = chats.length ? chats.map(c => `<div class="item"><span>${esc(c.title)} <span class="sub ltr">${esc(c.id)}</span></span><button class="btn sm gold" data-chat="${esc(c.id)}" data-title="${esc(c.title)}">اختار الجروب ده</button></div>`).join('')
+          : '<p class="note">مش لاقي أي جروب. اتأكد إنك ضفت البوت للجروب وبعت رسالة فيه بعدها، وجرّب تاني.</p>';
+      });
+    } catch (m) { err(m); }
+  });
+  on('#tg-chats', 'click', async e => {
+    const b = e.target.closest('[data-chat]'); if (!b) return;
+    try { await rpc('super_telegram_save', { p_chat_id: b.dataset.chat, p_chat_title: b.dataset.title }); toast('الجروب اتحفظ ✓ ابعت رسالة تجربة'); again(); }
+    catch (m) { err(m); }
+  });
+  on('#tg-test', 'click', async e => {
+    err('');
+    try { await busy(e.target, 'بنبعت…', () => rpc('super_telegram_test')); toast('اتبعتت ✓ بص على الجروب'); }
+    catch (m) { err(m); }
+  });
+  ['#tg-l', '#tg-s'].forEach(s => on(s, 'change', async () => {
+    try { await rpc('super_telegram_save', { p_notify_leads: $('#tg-l', box).checked, p_notify_sales: $('#tg-s', box).checked }); toast('اتحفظ ✓'); }
+    catch (m) { err(m); }
+  }));
 }
 
 /* ================= طلبات العملاء ================= */
