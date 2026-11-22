@@ -22,11 +22,14 @@ const STAFF = ['employee', 'admin', 'super_admin'];
 const ADMINS = ['admin', 'super_admin'];
 const SUPER = ['super_admin'];
 const MIN_PW = 8;
+// نسخة الشروط: لو عدّلت نص الشروط غيّر التاريخ ده، وكل المسوقين هيتطلب منهم يوافقوا تاني
+const TERMS_VERSION = '2026-11-22';
 const ACTIONS = {
+  accept_terms: 'وافق على الشروط', lead_link: 'عميل سجّل من رابط إحالة', lead_call: 'سجّل عميل اتصل بكود مسوق',
   add_sale: 'سجّل بيعة', cancel_sale: 'لغى بيعة', payout: 'سجّل تحويل', block: 'وقّف حساب', unblock: 'فعّل حساب',
   reset_password: 'غيّر باسورد', set_role: 'غيّر صلاحية', set_manager: 'نقل موظف لأدمن', fire: 'رفد', setting: 'غيّر إعداد',
   content_add: 'أضاف محتوى', content_edit: 'عدّل محتوى', content_delete: 'مسح محتوى', news_add: 'نشر خبر', news_edit: 'عدّل خبر',
-  news_pin: 'ثبّت خبر', news_unpin: 'شال تثبيت خبر', news_delete: 'مسح خبر', export: 'صدّر بيانات', update_payout_info: 'غيّر رقم التحويل', verify_payout: 'أكّد رقم تحويل', backup: 'نزّل نسخة احتياطية', telegram_settings: 'غيّر إعدادات تليجرام',
+  news_pin: 'ثبّت خبر', news_unpin: 'شال تثبيت خبر', news_delete: 'مسح خبر', export: 'صدّر بيانات', update_payout_info: 'غيّر رقم التحويل', verify_payout: 'أكّد رقم تحويل', backup: 'نزّل نسخة احتياطية',
   lead_add: 'سجّل عميل جديد', lead_assign: 'وزّع طلب', lead_status: 'غيّر حالة طلب'
 };
 const isStaff = () => ME && STAFF.includes(ME.role);
@@ -58,6 +61,8 @@ function normPhone(v) {
 const phoneEmail = p => `${normPhone(p)}@${C.EMAIL_DOMAIN}`;
 const dateFmt = new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Cairo', day: '2-digit', month: '2-digit', year: 'numeric' });
 const fdate = d => d ? dateFmt.format(new Date(d)) : '';
+const dtFmt = new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Cairo', day: '2-digit', month: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+const fdatetime = d => d ? dtFmt.format(new Date(d)).replace(/\s?am$/i, ' ص').replace(/\s?pm$/i, ' م') : '';
 const firstName = n => String(n || '').trim().split(/\s+/)[0] || '';
 
 let toastT;
@@ -89,6 +94,7 @@ function errMsg(e) {
   if (/captcha/i.test(m)) return 'التحقق إنك مش روبوت ما نجحش. استنى العلامة ✓ وجرّب تاني';
   if (/Failed to fetch|NetworkError|network/i.test(m)) return 'في مشكلة في النت. اتأكد إنك متصل وجرّب تاني';
   if (/FORBIDDEN/.test(m)) return 'مش مسموحلك تعمل ده';
+  if (/leads_phone_open_uq|duplicate key/i.test(m)) return 'رقم العميل ده متسجل في طلب تاني مفتوح';
   if (/JWT|session/i.test(m)) return 'الجلسة خلصت. ادخل تاني';
   return m || 'حصلت مشكلة، جرّب تاني';
 }
@@ -108,6 +114,40 @@ function pill(s) {
   return `<span class="pill ${c}">${esc(t)}</span>`;
 }
 function view(html) { main.innerHTML = html; window.scrollTo(0, 0); return main; }
+
+// زرار العين 👁 لإظهار/إخفاء الباسورد: بيتضاف لوحده لأي خانة باسورد في أي صفحة.
+// مخفي افتراضيًا، وبيحافظ على المكتوب ومكان المؤشر. (تحسين شكل بس، مالوش علاقة بالدخول أو الحماية)
+const EYE_SHOW = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+const EYE_HIDE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"/><path d="M10.6 5.1A10.6 10.6 0 0 1 12 5c6.5 0 10 7 10 7a17.6 17.6 0 0 1-3.2 4.2"/><path d="M6.6 6.6C3.9 8.4 2 12 2 12s3.5 7 10 7c1.9 0 3.6-.6 5-1.5"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>';
+function addPasswordEyes(root) {
+  root.querySelectorAll('input[type="password"]:not([data-eye])').forEach(inp => {
+    inp.dataset.eye = '1';
+    const wrap = document.createElement('span');
+    wrap.className = 'pw-wrap';
+    inp.parentNode.insertBefore(wrap, inp);
+    wrap.appendChild(inp);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'pw-eye';
+    const paint = shown => {
+      btn.innerHTML = shown ? EYE_HIDE : EYE_SHOW;
+      btn.setAttribute('aria-label', shown ? 'إخفاء الباسورد' : 'إظهار الباسورد');
+      btn.title = shown ? 'إخفاء الباسورد' : 'إظهار الباسورد';
+      btn.setAttribute('aria-pressed', shown ? 'true' : 'false');
+    };
+    paint(false);
+    btn.addEventListener('mousedown', e => e.preventDefault()); // ما يشيلش الفوكس من الخانة
+    btn.addEventListener('click', () => {
+      const shown = inp.type === 'password';
+      const s = inp.selectionStart, e = inp.selectionEnd, focused = document.activeElement === inp;
+      inp.type = shown ? 'text' : 'password';
+      paint(shown);
+      if (focused) { try { inp.setSelectionRange(s, e); } catch (x) {} }
+    });
+    wrap.appendChild(btn);
+  });
+}
+new MutationObserver(() => addPasswordEyes(document)).observe(document.body, { childList: true, subtree: true });
 function loading() { view('<div class="card"><p class="empty">جاري التحميل…</p></div>'); }
 function failed(m) {
   view(`<div class="card"><p class="err">${esc(m)}</p><button class="btn ghost sm" id="retry">جرّب تاني</button></div>`);
@@ -129,6 +169,7 @@ const ROUTES = {
   login:        { page: loginPage,     who: 'guest' },
   signup:       { page: signupPage,    who: 'guest' },
   guide:        { page: guidePage,     who: 'any',   nav: 'الدليل' },
+  terms:        { page: termsPage,     who: 'any' },
   home:         { page: homePage,      who: ['marketer'],  nav: 'الرئيسية' },
   sales:        { page: salesPage,     who: ['marketer'],  nav: 'بيعاتي' },
   leads:        { page: leadsPage,     who: ['marketer'],  nav: 'عملائي' },
@@ -148,24 +189,103 @@ const ROUTES = {
   'a-news':     { page: aNewsPage,     who: ADMINS, nav: 'إدارة الأخبار' },
   'a-settings': { page: aSettingsPage, who: SUPER,  nav: 'الإعدادات' }
 };
+const needsTerms = () => !!ME && ME.role === 'marketer' && ME.terms_version !== TERMS_VERSION;
 const homeFor = () => !ME ? 'login' : ME.role === 'marketer' ? 'home' : ME.role === 'employee' ? 'a-sale' : 'a-dash';
 const allowed = (r, role) => r.who === 'user' || r.who === 'any' || (Array.isArray(r.who) && r.who.includes(role));
 
+// أيقونات القايمة (stroke بلون النص)
+const NAV_ICONS = {
+  home: '<path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/>',
+  leads: '<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
+  sales: '<circle cx="12" cy="12" r="9"/><path d="M15 9.5c-.5-1-1.6-1.5-3-1.5-1.7 0-3 .8-3 2s1.3 1.7 3 2 3 .8 3 2-1.3 2-3 2c-1.4 0-2.5-.5-3-1.5M12 6v2m0 8v2"/>',
+  library: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/>',
+  guide: '<circle cx="12" cy="12" r="9"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>',
+  leaders: '<path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/>',
+  news: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
+  account: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+  'a-dash': '<path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/>',
+  'a-leads': '<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
+  'a-sale': '<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>',
+  'a-data': '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>',
+  'a-pay': '<rect x="2" y="6" width="20" height="14" rx="2"/><path d="M16 14h2M2 10h20"/>',
+  'a-mk': '<circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0"/><path d="M16 4a4 4 0 0 1 0 8M22 21a7 7 0 0 0-4-6.3"/>',
+  'a-team': '<circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0"/><path d="M16 11l2 2 4-4"/>',
+  'a-log': '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  'a-content': '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/>',
+  'a-news': '<path d="M3 11v2a1 1 0 0 0 1 1h3l5 4V6L7 10H4a1 1 0 0 0-1 1z"/><path d="M16 9a3 3 0 0 1 0 6M19 6a7 7 0 0 1 0 12"/>',
+  'a-settings': '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>',
+  more: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+  logout: '<path d="M15 21h4a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2h-4M8 17l-5-5 5-5M3 12h12"/>',
+  close: '<path d="M18 6L6 18M6 6l12 12"/>'
+};
+const icon = k => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${NAV_ICONS[k] || NAV_ICONS.more}</svg>`;
+
+// الموبايل: شريط سفلي (أهم 4 صفحات + المزيد) وقايمة كاملة بتطلع من تحت
+const tabbar = document.createElement('nav');
+tabbar.className = 'tabbar'; tabbar.id = 'tabbar'; tabbar.hidden = true; tabbar.setAttribute('aria-label', 'التنقل');
+const sheet = document.createElement('div');
+sheet.className = 'sheet'; sheet.id = 'sheet'; sheet.hidden = true;
+sheet.innerHTML = `<div class="sheet-bg" data-close></div>
+  <div class="sheet-in" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+    <div class="sheet-head"><div class="sheet-who"><b id="sheet-title"></b><small class="muted" id="sheet-sub"></small></div>
+      <button type="button" class="icon-btn" data-close aria-label="اقفل القايمة">${icon('close')}</button></div>
+    <div id="sheet-body"></div>
+    <button type="button" class="btn ghost sheet-out" id="sheet-logout">${icon('logout')} تسجيل خروج</button>
+  </div>`;
+document.body.append(tabbar, sheet);
+let sheetReturn = null;
+function openSheet() {
+  sheet.hidden = false; document.documentElement.classList.add('locked');
+  sheetReturn = document.activeElement; $('[data-close].icon-btn', sheet).focus();
+}
+function closeSheet() {
+  if (sheet.hidden) return;
+  sheet.hidden = true; document.documentElement.classList.remove('locked');
+  if (sheetReturn && document.contains(sheetReturn)) sheetReturn.focus({ preventScroll: true });
+}
+sheet.addEventListener('click', e => { if (e.target.closest('[data-close]') || e.target.closest('a')) closeSheet(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet(); });
+$('#sheet-logout', sheet).addEventListener('click', () => { closeSheet(); $('#logoutBtn').click(); });
+tabbar.addEventListener('click', e => { if (e.target.closest('[data-more]')) openSheet(); });
+
 function renderNav(current) {
-  if (!ME) { navEl.hidden = true; $('#who').hidden = true; return; }
-  const badge = k => k === 'a-leads' && ME.new_leads > 0 ? ` <span class="nbadge">${num(ME.new_leads)}</span>` : '';
+  closeSheet();
+  if (!ME || needsTerms()) {
+    navEl.hidden = true; tabbar.hidden = true; document.body.classList.remove('has-tabbar');
+    $('#who').hidden = !ME; if (ME) $('#whoName').textContent = firstName(ME.name);
+    return;
+  }
+  const count = k => k === 'a-leads' && ME.new_leads > 0 ? num(ME.new_leads) : '';
+  const badge = k => count(k) ? ` <span class="nbadge">${count(k)}</span>` : '';
   const link = k => `<a href="#${k}" class="${k === current ? 'on' : ''}">${ROUTES[k].nav}${badge(k)}</a>`;
-  let html;
+  let groups;
   if (ME.role === 'marketer') {
-    html = ['home', 'leads', 'sales', 'library', 'guide', 'leaders', 'news', 'account'].map(link).join('');
+    groups = [['', ['home', 'leads', 'sales', 'library', 'guide', 'leaders', 'news', 'account']]];
   } else {
     const staff = Object.keys(ROUTES).filter(k => k.startsWith('a-') && allowed(ROUTES[k], ME.role));
-    html = staff.map(link).join('') + `<span class="sep"></span>` + ['library', 'guide', 'news', 'account'].map(link).join('');
+    groups = [['الشغل', staff], ['عام', ['library', 'guide', 'news', 'account']]];
   }
-  navEl.innerHTML = html; navEl.hidden = false;
+  navEl.innerHTML = groups.map(g => g[1].map(link).join('')).join('<span class="sep"></span>');
+  navEl.hidden = false;
   const on = $('a.on', navEl); if (on) on.scrollIntoView({ block: 'nearest', inline: 'center' });
   $('#who').hidden = false;
-  $('#whoName').textContent = `${firstName(ME.name)} · ${ME.role === 'marketer' ? ME.code : ROLES[ME.role]}`;
+  const sub = ME.role === 'marketer' ? ME.code : ROLES[ME.role];
+  $('#whoName').textContent = `${firstName(ME.name)} · ${sub}`;
+
+  // الشريط السفلي
+  const all = groups.flatMap(g => g[1]), main = all.slice(0, 4), inMore = !main.includes(current);
+  const moreCount = all.slice(4).map(count).filter(Boolean).length;
+  tabbar.innerHTML = main.map(k => `<a href="#${k}" class="${k === current ? 'on' : ''}"${k === current ? ' aria-current="page"' : ''}>
+      <span class="ti">${icon(k)}${count(k) ? `<span class="tdot">${count(k)}</span>` : ''}</span><span class="tl">${ROUTES[k].nav}</span></a>`).join('')
+    + `<button type="button" data-more class="${inMore ? 'on' : ''}" aria-haspopup="dialog">
+      <span class="ti">${icon('more')}${moreCount ? '<span class="tdot dot"></span>' : ''}</span><span class="tl">${inMore && ROUTES[current] && ROUTES[current].nav || 'المزيد'}</span></button>`;
+  tabbar.hidden = false; document.body.classList.add('has-tabbar');
+
+  // القايمة الكاملة
+  $('#sheet-title', sheet).textContent = ME.name;
+  $('#sheet-sub', sheet).textContent = sub;
+  $('#sheet-body', sheet).innerHTML = groups.map(([title, keys]) => `${title ? `<p class="sheet-lbl">${title}</p>` : ''}
+    <div class="sheet-grid">${keys.map(k => `<a href="#${k}" class="${k === current ? 'on' : ''}">${icon(k)}<span>${ROUTES[k].nav}</span>${badge(k)}</a>`).join('')}</div>`).join('');
 }
 
 async function loadMe() {
@@ -175,6 +295,13 @@ async function loadMe() {
 }
 
 async function route() {
+  // رابط إحالة: العميل بيشوف صفحة التعريف بس (حتى لو حد من الفريق فاتحه وهو داخل)
+  const ref = refCode();
+  if (ref && location.hash !== '#terms') {
+    closeSheet(); navEl.hidden = true; $('#who').hidden = true; tabbar.hidden = true; document.body.classList.remove('has-tabbar');
+    return refPage(ref);
+  }
+  const brandSub = $('.brand small'); if (brandSub) brandSub.textContent = 'بوابة السيلز';
   const { data: { session } } = await sb.auth.getSession();
   let key = location.hash.replace(/^#/, '');
   if (!session) {
@@ -190,6 +317,8 @@ async function route() {
     }
     const r = ROUTES[key];
     if (!r || r.who === 'guest' || !allowed(r, ME.role)) key = homeFor();
+    // المسوق اللي ما وافقش على النسخة الحالية من الشروط لازم يوافق الأول
+    if (needsTerms()) key = 'terms';
   }
   if (location.hash !== '#' + key) history.replaceState(null, '', '#' + key);
   renderNav(key);
@@ -244,7 +373,7 @@ function loginPage() {
     <a class="btn gold" href="#signup">سجّل دلوقتي</a>
     <p class="muted">عندك أسئلة قبل ما تبدأ؟ <a href="#guide">اقرأ الدليل والأسئلة الشائعة</a></p>
   </div>
-  <p class="foot"><a href="${esc(C.SITE_URL)}" target="_blank" rel="noopener">موقع Clan Agency</a></p>`);
+  <p class="foot"><a href="${esc(C.SITE_URL)}" target="_blank" rel="noopener">موقع Clan Agency</a> · <a href="#terms">الشروط والخصوصية</a></p>`);
   const cap = mountCaptcha($('#l-cap'));
   $('#lf').addEventListener('submit', async e => {
     e.preventDefault(); showErr($('#l-err'), '');
@@ -281,6 +410,7 @@ function signupPage() {
       <label class="f">الباسورد<input id="s-pw" type="password" autocomplete="new-password" placeholder="8 حروف أو أرقام على الأقل"></label>
       <label class="f">اكتب الباسورد تاني<input id="s-pw2" type="password" autocomplete="new-password"></label>
     </div>
+    <label class="agree"><input type="checkbox" id="s-terms"><span>قريت ووافقت على <a href="#terms" target="_blank" rel="noopener">شروط العمل وسياسة الخصوصية</a></span></label>
     <div class="cap" id="s-cap" hidden></div>
     <div class="err" id="s-err" hidden></div>
     <button class="btn gold" id="s-btn">سجّلني وطلّعلي الكود</button>
@@ -304,12 +434,13 @@ function signupPage() {
     if (pay.length < 8 || pay.length > 15) return showErr(err, 'رقم التحويل مش صح');
     if (pw.length < MIN_PW) return showErr(err, `الباسورد لازم ${MIN_PW} حروف أو أرقام على الأقل`);
     if (pw !== pw2) return showErr(err, 'الباسوردين مش زي بعض');
+    if (!$('#s-terms').checked) return showErr(err, 'لازم توافق على شروط العمل وسياسة الخصوصية الأول');
     try {
       const data = await busy($('#s-btn'), 'بنسجّلك…', async () => {
         const captchaToken = await cap.token();
         const { data, error } = await sb.auth.signUp({
           email: phoneEmail(phone), password: pw,
-          options: Object.assign({ data: { name, age: String(age), gov, exp, phone, pay_method: method, pay_number: pay } }, captchaToken ? { captchaToken } : {})
+          options: Object.assign({ data: { name, age: String(age), gov, exp, phone, pay_method: method, pay_number: pay, terms_version: TERMS_VERSION } }, captchaToken ? { captchaToken } : {})
         });
         if (error) { cap.reset(); throw errMsg(error); }
         return data;
@@ -320,9 +451,89 @@ function signupPage() {
   });
 }
 
+/* ================= رابط الإحالة ================= */
+// رابط المسوق: البوابة نفسها + ?ref=الكود (العميل بيشوف صفحة تعريف وفورم، من غير حساب)
+const refLink = code => `${location.origin}${location.pathname.replace(/index\.html$/, '')}?ref=${encodeURIComponent(code)}`;
+const refCode = () => (new URLSearchParams(location.search).get('ref') || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
+// واتساب: الرقم المصري 01xxxxxxxxx بيتحول لـ 201xxxxxxxxx
+const waNumber = p => { const d = String(p || '').replace(/\D/g, ''); return d.startsWith('0') ? '2' + d : d; };
+const telNumber = p => '+' + waNumber(p);
+const CALL_ICON = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg>';
+const waLink = (phone, text) => `https://wa.me/${waNumber(phone)}?text=${encodeURIComponent(text)}`;
+
+async function refPage(code) {
+  const brandSub = $('.brand small'); if (brandSub) brandSub.textContent = 'تسويق رقمي';
+  loading();
+  let ri;
+  try { ri = await rpc('ref_info', { p_ref: code }); } catch (m) { return failed(m); }
+  if (!ri || !ri.ok) {
+    view(`<div class="card narrow" style="text-align:center">
+      <h1>الرابط ده مش شغال</h1>
+      <p class="lead">ممكن يكون فيه غلطة في الرابط. تقدر تكلّم فريقنا على طول.</p>
+      <a class="btn gold" href="${esc(waLink(C.CLIENTS_PHONE, 'أهلًا، عايز أعرف تفاصيل عن خدماتكم'))}" target="_blank" rel="noopener">كلّمنا واتساب</a>
+      <a href="${esc(C.SITE_URL)}" target="_blank" rel="noopener">موقع Clan Agency</a></div>`);
+    return;
+  }
+  const svcs = (ri.services || []).filter(s => s !== 'أكتر من خدمة');
+  const waMsg = `أهلًا، أنا جاي من طرف كود ${ri.code} وعايز أعرف تفاصيل عن خدماتكم`;
+  view(`
+  <div class="card ref-hero">
+    <div class="stack"><h1>أهلًا بيك 👋</h1>
+      <p class="lead"><b>${esc(ri.name)}</b> رشّحلك <b>Clan Agency</b>. إحنا بنساعد البيزنس يوصل لعملا أكتر أونلاين.</p></div>
+    ${svcs.length ? `<div class="chips">${svcs.map(s => `<span class="chip">${esc(s)}</span>`).join('')}</div>` : ''}
+    <div class="refcode"><span>لو هتكلمنا، قول للفريق الكود ده:</span><b class="ltr" id="r-code">${esc(ri.code)}</b></div>
+    <div class="actions">
+      <a class="btn gold" id="r-wa" href="${esc(waLink(C.CLIENTS_PHONE, waMsg))}" target="_blank" rel="noopener">${WA_ICON} كلّمنا واتساب</a>
+      <a class="btn" id="r-call" href="tel:${esc(telNumber(C.CLIENTS_PHONE))}">${CALL_ICON} اتصل بينا</a>
+      <a class="btn ghost" href="#r-form" id="r-jump">سيب بياناتك ونكلمك</a>
+    </div>
+    <p class="muted ltr" style="font-size:13.5px;text-align:center">${esc(C.CLIENTS_PHONE)}</p>
+    <p class="muted" style="font-size:13.5px">تعرف أكتر عننا من <a href="${esc(C.SITE_URL)}" target="_blank" rel="noopener">موقعنا</a>.</p>
+  </div>
+  <form class="card" id="r-form" novalidate>
+    <div class="stack"><h2>سيب بياناتك</h2><p class="lead">فريقنا هيكلمك على الواتساب ويعملك عرض مناسب للبيزنس بتاعك.</p></div>
+    <div class="row2">
+      <label class="f">اسمك<input id="r-name" autocomplete="name"></label>
+      <label class="f">موبايلك (واتساب)<input id="r-phone" type="tel" inputmode="tel" dir="ltr" autocomplete="tel" placeholder="01xxxxxxxxx"></label>
+    </div>
+    <div class="row2">
+      <label class="f">اسم البيزنس <span class="opt">(اختياري)</span><input id="r-biz" autocomplete="organization" placeholder="مثلًا: مطعم الريف"></label>
+      <label class="f">البلد<input id="r-country" value="مصر" autocomplete="country-name"></label>
+    </div>
+    <div class="stack" style="font-weight:600;font-size:14px">محتاج إيه؟ <span class="opt">(اختار حاجة أو أكتر)</span>
+      <div class="svc-pick" id="r-svc">${svcs.map(s => `<label><input type="checkbox" value="${esc(s)}">${esc(s)}</label>`).join('')}</div>
+    </div>
+    <label class="f">عايز تقولنا حاجة؟ <span class="opt">(اختياري)</span><textarea id="r-notes" rows="2" placeholder="مثلًا: أنسب وقت نكلمك فيه"></textarea></label>
+    <label class="trap" aria-hidden="true">سيب الخانة دي فاضية<input id="r-web" tabindex="-1" autocomplete="off"></label>
+    <div class="err" id="r-err" hidden></div>
+    <button class="btn gold" id="r-btn">ابعت</button>
+    <p class="muted" style="font-size:13px">بياناتك بتوصل لفريق Clan Agency بس. <a href="${esc(location.pathname)}#terms" id="r-privacy" target="_blank" rel="noopener">سياسة الخصوصية</a></p>
+  </form>`);
+  $('#r-jump').addEventListener('click', e => { e.preventDefault(); $('#r-form').scrollIntoView({ behavior: 'smooth', block: 'start' }); $('#r-name').focus({ preventScroll: true }); });
+  $('#r-form').addEventListener('submit', async e => {
+    e.preventDefault(); showErr($('#r-err'), '');
+    const services = $$('#r-svc input:checked').map(x => x.value);
+    const a = { p_ref: ri.code, p_client: $('#r-name').value.trim(), p_phone: $('#r-phone').value, p_business: $('#r-biz').value,
+      p_country: $('#r-country').value, p_services: services, p_notes: $('#r-notes').value, p_trap: $('#r-web').value };
+    if (a.p_client.length < 2) return showErr($('#r-err'), 'اكتب اسمك');
+    if (normPhone(a.p_phone).length < 8) return showErr($('#r-err'), 'اكتب رقم موبايلك صح');
+    if (!services.length) return showErr($('#r-err'), 'اختار خدمة واحدة على الأقل');
+    try {
+      await busy($('#r-btn'), 'بنبعت…', () => rpc('ref_add_lead', a));
+      $('#r-form').outerHTML = `<div class="card" id="r-done" style="text-align:center">
+        <h2>وصلنا طلبك ✓</h2>
+        <p class="lead">شكرًا يا ${esc(firstName(a.p_client))}. فريقنا هيكلمك على الواتساب قريب.</p>
+        <p class="muted">مستعجل؟ كلّمنا إنت على طول:</p>
+        <a class="btn gold" href="${esc(waLink(C.CLIENTS_PHONE, waMsg))}" target="_blank" rel="noopener">${WA_ICON} كلّمنا واتساب</a></div>`;
+      $('#r-done').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (m) { showErr($('#r-err'), m); }
+  });
+}
+const WA_ICON = '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm0 18.2c-1.5 0-3-.4-4.3-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.2-.4.2-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.8 11.9 11.9 0 0 0 4.6 4c1.7.7 2.4.8 3.2.7.5-.1 1.5-.6 1.8-1.2.2-.6.2-1.1.1-1.2l-.5-.2z"/></svg>';
+
 /* ================= صفحات المسوق ================= */
 function readyMessage(code) {
-  return `تمام جدًا 👌\n🌐 تقدر تتعرف علينا أكتر من موقعنا: ${C.SITE_URL}\nوكلّم فريقنا على الواتساب ده: ${C.CLIENTS_PHONE}\nوقولهم إنك جاي من طرف كود ${code}، وهيبعتولك عرض مناسب ليك.`;
+  return `تمام جدًا 👌\n🌐 تقدر تتعرف علينا أكتر من موقعنا: ${C.SITE_URL}\nسيب بياناتك من هنا وفريقنا هيكلمك: ${refLink(code)}\nأو كلّم فريقنا على الواتساب ده: ${C.CLIENTS_PHONE}\nوقولهم إنك جاي من طرف كود ${code}، وهيبعتولك عرض مناسب ليك.`;
 }
 
 async function homePage() {
@@ -342,7 +553,7 @@ async function homePage() {
       <ol style="margin:0;padding-inline-start:20px;display:grid;gap:6px">
         <li>افتح «المحتوى» وخد السكريبتات والستوري الجاهزة</li>
         <li>ابعت لأصحاب البيزنس، ونزّل ستوري لكل اللي تعرفهم</li>
-        <li>العميل المهتم يكلّم <b class="ltr">${esc(C.CLIENTS_PHONE)}</b> ويقول كودك <b class="ltr">${esc(me.code)}</b></li>
+        <li>ابعت للعميل المهتم رابط الإحالة بتاعك (تحت)، أو خليه يكلّم <b class="ltr">${esc(C.CLIENTS_PHONE)}</b> ويقول كودك <b class="ltr">${esc(me.code)}</b></li>
         <li>أول ما يدفع، ليك ${money(me.commission)}</li>
       </ol>
     </div>` : '';
@@ -367,6 +578,16 @@ async function homePage() {
     </div>
   </div>
   <div class="card">
+    <div class="head"><h2>🔗 رابط الإحالة بتاعك</h2>${me.link_leads ? `<span class="badge">${num(me.link_leads)} عميل سجّل منه</span>` : ''}</div>
+    <p class="lead">شاركه مع العملا في الشات أو البوست أو الستوري. العميل بيفتحه ويكلّمنا أو يسيب بياناته، ويتسجل باسمك على طول.</p>
+    <div class="linkbox"><span class="ltr" id="ref-url">${esc(refLink(me.code))}</span></div>
+    <div class="actions">
+      <button type="button" class="btn" id="cp-link">انسخ الرابط</button>
+      <button type="button" class="btn gold" id="sh-link">شارك</button>
+      <a class="btn ghost" href="${esc(refLink(me.code))}" target="_blank" rel="noopener">جرّبه</a>
+    </div>
+  </div>
+  <div class="card">
     <h2>لما العميل يبقى مهتم</h2>
     <p class="lead">ابعتله الرسالة دي. كودك متحط فيها جاهز:</p>
     <div class="snip"><pre>${esc(readyMessage(me.code))}</pre></div>
@@ -376,6 +597,15 @@ async function homePage() {
   ${pinned.length ? `<div class="card"><div class="head"><h2>📌 من الإدارة</h2><a href="#news">كل الأخبار</a></div>${pinned.map(n => `<div class="stack"><h3>${esc(n.title)}</h3><p class="news-body muted">${esc(n.body || '')}</p></div>`).join('')}</div>` : ''}`);
   $('#cp-code').addEventListener('click', () => copyText(me.code));
   $('#cp-ready').addEventListener('click', () => copyText(readyMessage(me.code)));
+  $('#cp-link').addEventListener('click', () => copyText(refLink(me.code)));
+  $('#sh-link').addEventListener('click', async () => {
+    const text = `Clan Agency بتساعد البيزنس يوصل لعملا أكتر: إدارة صفحات، إعلانات ممولة، مواقع، لوجوهات.\nسيب بياناتك من هنا وفريقنا هيكلمك:`;
+    if (navigator.share) {
+      try { await navigator.share({ title: 'Clan Agency', text, url: refLink(me.code) }); } catch (e) { /* المستخدم قفل المشاركة */ }
+    } else {
+      window.open(`https://wa.me/?text=${encodeURIComponent(text + '\n' + refLink(me.code))}`, '_blank', 'noopener');
+    }
+  });
 }
 
 async function salesPage() {
@@ -509,10 +739,105 @@ async function guidePage() {
   ${faq.length ? `<div class="card" id="g-faq"><h2>الأسئلة الشائعة</h2>
     <div class="faq">${faq.map(s => `<details><summary>${esc(s.title)}</summary><p class="news-body">${esc(fill(s.body))}</p></details>`).join('')}</div></div>` : ''}
   ${items.length ? '' : '<div class="card"><p class="empty">الدليل لسه ما اتكتبش.</p></div>'}
-  <div class="card" style="text-align:center"><p>لسه عندك سؤال؟ كلّمنا واتساب <b class="ltr">${esc(C.SUPPORT_PHONE)}</b></p></div>`);
+  <div class="card" style="text-align:center"><p>لسه عندك سؤال؟ كلّمنا واتساب <b class="ltr">${esc(C.SUPPORT_PHONE)}</b></p>
+    <p class="muted"><a href="#terms">شروط العمل وسياسة الخصوصية</a></p></div>`);
   $('#jump').addEventListener('click', e => {
     const b = e.target.closest('[data-to]'); if (!b) return;
     const t = document.getElementById(b.dataset.to); if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+}
+
+/* ================= الشروط وسياسة الخصوصية ================= */
+// لو غيّرت أي بند هنا، غيّر TERMS_VERSION فوق
+const TERMS = [
+  ['طبيعة الشغل', [
+    'الشغل مع Clan Agency كمسوق بالعمولة. ده مش عقد عمل ولا وظيفة، ومفيش مرتب ثابت ولا تأمينات.',
+    'بتشتغل في الوقت والمكان اللي يناسبك، ومن صفحاتك أو معارفك.']],
+  ['العمولة', [
+    'العمولة مبلغ ثابت عن كل عميل يتعاقد ويدفع فعلًا، وقيمتها هي المعلنة في البوابة وقت تسجيل البيعة ([العمولة] حاليًا).',
+    'العمولة بتستحق لما العميل يدفع وفريق الشركة يسجل البيعة في البوابة، وبتظهر في حسابك على طول.',
+    'التحويل بيكون على إنستاباي أو فودافون كاش للرقم المسجل في حسابك. قبل أول تحويل الإدارة بتتأكد من الرقم، ولو غيّرته بيتأكد منه تاني.',
+    'لو البيعة اتلغت أو العميل استرد فلوسه، العمولة بتتلغي. ولو كانت اتصرفت، بتتخصم من مستحقاتك الجاية.']],
+  ['العميل بيتحسب لمين', [
+    'العميل بيتحسب لأول مسوق يسجله في البوابة أو يقول للفريق إنه جاي من طرف كوده.',
+    'لو نفس العميل اتسجل قبل كده باسم مسوق تاني، العمولة لصاحب التسجيل الأول.',
+    'في أي خلاف، الإدارة بتحكم بسجلات البوابة، وقرارها نهائي.']],
+  ['التزاماتك', [
+    'تتكلم مع العملا باحترام وتعرّف نفسك إنك مسوق مع Clan Agency، مش موظف ولا مدير فيها.',
+    'ما توعدش العميل بأسعار أو خصومات أو مواعيد تسليم. الأسعار والاتفاق مع فريق الشركة بس.',
+    'ما تعملش صفحات أو إعلانات ممولة باسم Clan Agency أو اللوجو بتاعها من غير إذن مكتوب.',
+    'ما تبعتش رسايل مزعجة (سبام) ولا تضايق حد رفض.',
+    'تاخد موافقة العميل قبل ما تسجل رقمه في البوابة.']],
+  ['ممنوع', [
+    'تفتح أكتر من حساب، أو تسجل باسم أو رقم مش بتاعك.',
+    'تسجل عملا وهميين أو عملا مش إنت اللي جبتهم.',
+    'تدّي حسابك أو الباسورد بتاعك لحد تاني.',
+    'أي تلاعب في البوابة أو في بيانات العملا.']],
+  ['الإيقاف وإنهاء التعامل', [
+    'الإدارة من حقها توقف أو تقفل أي حساب يخالف الشروط دي، وتلغي العمولات اللي جاية من المخالفة.',
+    'العمولات السليمة المستحقة قبل الإيقاف بتتصرف عادي.',
+    'تقدر توقف شغلك معانا في أي وقت، وعمولاتك المستحقة بتتصرف.']],
+  ['تعديل الشروط', [
+    'ممكن نعدّل الشروط دي. لما ده يحصل، البوابة هتطلب منك توافق على النسخة الجديدة أول ما تدخل.']]
+];
+const PRIVACY = [
+  ['بنجمع إيه', [
+    'بياناتك: الاسم، السن، المحافظة، الخبرة، رقم الموبايل، وطريقة ورقم التحويل.',
+    'بيانات العملا اللي بتسجلهم: الاسم، الموبايل، البيزنس، الخدمة، والملاحظات.',
+    'سجل العمليات (مين عمل إيه وإمتى) عشان نحمي حقك وحق الشركة.']],
+  ['بنستخدمها في إيه', [
+    'تشغيل حسابك، وحساب عمولتك وتحويلها، والتواصل معاك، ومتابعة العملا.']],
+  ['مين يشوفها', [
+    'فريق إدارة Clan Agency بس، وكل واحد حسب صلاحيته.',
+    'مش بنبيع بياناتك ولا بندّيها لأي جهة برة الشركة، إلا لو القانون طلب كده.']],
+  ['حمايتها', [
+    'البيانات متخزنة على خوادم آمنة ومشفرة، والدخول محمي بصلاحيات.',
+    'الباسورد متخزن مشفر، ومحدش يقدر يشوفه، ولا حتى الإدارة.',
+    'الموقع بيحفظ جلسة الدخول بس في المتصفح. مفيش إعلانات ولا أدوات تتبع.']],
+  ['حقوقك', [
+    'تقدر تعدّل بياناتك ورقم التحويل من صفحة «حسابي».',
+    'تقدر تطلب مسح حسابك وبياناتك بالتواصل معانا. السجلات المالية (البيعات والتحويلات) بنحتفظ بيها كسجل حسابات.']]
+];
+
+async function termsPage() {
+  const gate = needsTerms();
+  const commission = ME ? ME.commission
+    : await q(sb.from('settings').select('value').eq('key', 'commission')).then(r => (r[0] || {}).value).catch(() => null);
+  const fill = t => esc(t).replace('[العمولة]', commission ? money(commission) : 'المبلغ المعلن');
+  const sec = (id, title, list) => `<div class="card" id="${id}"><h2>${title}</h2>
+    <ol class="terms">${list.map(([h, items]) => `<li><h3>${esc(h)}</h3><ul>${items.map(i => `<li>${fill(i)}</li>`).join('')}</ul></li>`).join('')}</ol></div>`;
+  const accepted = ME && ME.terms_version === TERMS_VERSION && ME.terms_accepted_at;
+  view(`
+  <div class="card">
+    <div class="stack"><h1>شروط العمل وسياسة الخصوصية</h1>
+      <p class="lead">القواعد اللي بنشتغل بيها مع المسوقين، وإزاي بنتعامل مع بياناتك. آخر تحديث: ${fdate(TERMS_VERSION + 'T12:00:00')}.</p></div>
+    ${gate ? `<p class="note">${ME.terms_version ? 'الشروط اتحدّثت. ' : ''}عشان تكمل في البوابة، اقرا الشروط دي ووافق عليها تحت.</p>` : ''}
+    ${accepted ? `<p class="okbox">✓ وافقت على النسخة دي يوم ${fdate(ME.terms_accepted_at)}.</p>` : ''}
+    <div class="seg" id="t-jump"><button type="button" data-to="t-terms">شروط العمل</button><button type="button" data-to="t-privacy">الخصوصية</button></div>
+  </div>
+  ${sec('t-terms', 'شروط العمل', TERMS)}
+  ${sec('t-privacy', 'سياسة الخصوصية', PRIVACY)}
+  ${gate ? `<form class="card" id="tf" novalidate>
+      <label class="agree"><input type="checkbox" id="t-ok"><span>قريت ووافقت على شروط العمل وسياسة الخصوصية</span></label>
+      <div class="err" id="t-err" hidden></div>
+      <button class="btn gold" id="t-btn">موافق، كمّل</button>
+      <button type="button" class="btn ghost" id="t-out">مش موافق، اخرج</button>
+    </form>`
+  : `<div class="card" style="text-align:center"><p>عندك سؤال عن الشروط؟ كلّمنا واتساب <b class="ltr">${esc(C.SUPPORT_PHONE)}</b></p>
+      ${ME ? '' : `<div class="actions" style="justify-content:center"><a class="btn gold" href="#signup">سجّل وخد كودك</a><a class="btn ghost" href="#login">عندي حساب</a></div>`}</div>`}`);
+  $('#t-jump').addEventListener('click', e => {
+    const b = e.target.closest('[data-to]'); if (!b) return;
+    const t = document.getElementById(b.dataset.to); if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+  if (!gate) return;
+  $('#t-out').addEventListener('click', () => $('#logoutBtn').click());
+  $('#tf').addEventListener('submit', async e => {
+    e.preventDefault(); showErr($('#t-err'), '');
+    if (!$('#t-ok').checked) return showErr($('#t-err'), 'علّم على «قريت ووافقت» الأول');
+    try {
+      await busy($('#t-btn'), 'بنسجّل موافقتك…', () => rpc('accept_terms', { p_version: TERMS_VERSION }));
+      await loadMe(); toast('شكرًا ✓'); go(homeFor());
+    } catch (m) { showErr($('#t-err'), m); }
   });
 }
 
@@ -528,6 +853,7 @@ async function accountPage() {
       <div class="item"><span class="muted">المحافظة</span><b>${esc(me.gov || '')}</b></div>
       <div class="item"><span class="muted">اتسجلت</span><b>${fdate(me.joined)}</b></div>
       ${me.role !== 'marketer' ? `<div class="item"><span class="muted">الصلاحية</span><b>${esc(ROLES[me.role])}</b></div>` : ''}
+      <div class="item"><span class="muted">الشروط والخصوصية</span><span>${me.terms_accepted_at ? `وافقت يوم ${fdate(me.terms_accepted_at)} · ` : ''}<a href="#terms">اقرأها</a></span></div>
     </div>
   </div>
   <form class="card" id="pf" novalidate>
@@ -775,6 +1101,7 @@ function aMkPage() {
         <span class="muted" style="font-size:13.5px">${esc(a.age || '')} سنة · ${esc(a.gov || '')} · خبرة: ${esc(a.exp || '-')} · اتسجل ${fdate(a.created_at)}</span>
         <span class="muted" style="font-size:13.5px">موبايل <span class="ltr">${esc(a.phone)}</span> · ${esc(a.pay_method || '')} <span class="ltr">${esc(a.pay_number || '')}</span>
           ${a.payout_verified ? `<span class="pill ok">رقم التحويل متأكد ✓</span>` : `<span class="pill no">رقم التحويل مش متأكد</span>`}</span>
+        <span class="muted" style="font-size:13.5px">${a.terms_accepted_at ? `وافق على الشروط يوم ${fdate(a.terms_accepted_at)}${a.terms_version !== TERMS_VERSION ? ' (نسخة قديمة)' : ''}` : '<span class="pill no">لسه ما وافقش على الشروط</span>'}</span>
         ${a.same_payout && a.same_payout.length ? `<span style="color:var(--bad);font-weight:600;font-size:13.5px">⚠️ نفس رقم التحويل مستخدم في: ${a.same_payout.map(esc).join('، ')}</span>` : ''}</div>
         ${pill(a.status)}</div>
       <div class="stats">
@@ -790,7 +1117,7 @@ function aMkPage() {
       <div class="row2">
         ${isSuper() ? `<label class="f">الصلاحية <span class="opt">(ترقية)</span><select id="m-role">${Object.keys(ROLES).map(k => `<option value="${k}"${k === a.role ? ' selected' : ''}>${ROLES[k]}</option>`).join('')}</select></label>` : ''}
         <label class="f">باسورد جديد <span class="opt">(لو نسي الباسورد، ${MIN_PW} حروف على الأقل)</span>
-          <span style="display:flex;gap:8px"><input id="m-pw" type="text" dir="ltr" autocomplete="off"><button type="button" class="btn sm" id="m-pw-btn">غيّر</button></span></label>
+          <span style="display:flex;gap:8px"><input id="m-pw" type="password" dir="ltr" autocomplete="new-password"><button type="button" class="btn sm" id="m-pw-btn">غيّر</button></span></label>
       </div>
     </div>
     <div class="card"><h2>البيعات</h2><div class="list" id="m-sales">${a.sales.length ? a.sales.map(s => `
@@ -986,7 +1313,7 @@ async function aTeamPage() {
       ${canManage ? `<div class="row3">
         <label class="f">الصلاحية<select data-role>${['employee', 'admin', 'super_admin'].map(k => `<option value="${k}"${k === t.role ? ' selected' : ''}>${ROLES[k]}</option>`).join('')}</select></label>
         ${t.role === 'employee' ? `<label class="f">تبع أنهي أدمن<select data-mgr><option value="">من غير أدمن</option>${admins.map(a => `<option value="${esc(a.code)}"${a.code === t.manager_code ? ' selected' : ''}>${esc(a.name)} (${esc(a.code)})</option>`).join('')}</select></label>` : '<span></span>'}
-        <label class="f">باسورد جديد<span style="display:flex;gap:8px"><input data-pw type="text" dir="ltr" autocomplete="off"><button type="button" class="btn sm" data-pw-btn>غيّر</button></span></label>
+        <label class="f">باسورد جديد<span style="display:flex;gap:8px"><input data-pw type="password" dir="ltr" autocomplete="new-password"><button type="button" class="btn sm" data-pw-btn>غيّر</button></span></label>
       </div>
       <div class="actions">
         <button class="btn sm ${t.status === 'blocked' ? '' : 'ghost'}" data-st="${t.status === 'blocked' ? 'active' : 'blocked'}">${t.status === 'blocked' ? 'فعّل الحساب' : 'أوقف مؤقتًا'}</button>
@@ -1178,7 +1505,6 @@ async function aSettingsPage() {
       <p class="muted" style="font-size:13.5px">⚠️ الملف فيه أرقام موبايلات وبيانات المسوقين، فما تبعتهوش لحد. الباسوردات مش جواه.</p></div>
     <div class="actions"><button class="btn" id="st-b-btn">نزّل نسخة احتياطية دلوقتي</button><span class="muted" id="st-b-msg"></span></div>
   </div>
-  <div class="card" id="tg"><p class="empty">بنحمّل إعدادات تليجرام…</p></div>
   <form class="card" id="st-c" novalidate>
     <h1>الإعدادات</h1>
     <label class="f">العمولة على كل بيعة (جنيه) <span class="opt">(بتسري على البيعات الجديدة بس)</span><input id="st-com" inputmode="decimal" dir="ltr" value="${esc(s.commission)}"></label>
@@ -1204,7 +1530,6 @@ async function aSettingsPage() {
     document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
     $('#st-b-msg').textContent = `✓ اتنزّلت: ${num(data.profiles.length)} حساب، ${num(data.sales.length)} بيعة، ${num(data.leads.length)} طلب`;
   }).catch(m => toast(m)));
-  telegramCard($('#tg'));
   $('#st-c').addEventListener('submit', async e => {
     e.preventDefault();
     const v = Number(digits($('#st-com').value));
@@ -1231,84 +1556,14 @@ async function aSettingsPage() {
   });
 }
 
-/* ---------- إشعارات تليجرام (السوبر أدمن) ---------- */
-async function telegramCard(box) {
-  let st;
-  try { st = await rpc('super_telegram_status'); } catch (m) { box.innerHTML = `<p class="err">${esc(m)}</p>`; return; }
-  const ready = st.has_token && st.chat_id;
-  box.innerHTML = `
-    <div class="stack"><h1>إشعارات تليجرام</h1>
-      <p class="lead">رسالة على جروب تليجرام بتاع الإدارة مع كل طلب عميل جديد وكل بيعة جديدة، عشان ما يفوتكوش شغل.</p></div>
-    <div class="list">
-      <div class="item"><span>البوت</span>${st.has_token ? '<span class="pill ok">متوصل ✓</span>' : '<span class="pill no">لسه</span>'}</div>
-      <div class="item"><span>الجروب</span>${st.chat_id ? `<span class="pill ok">${esc(st.chat_title || st.chat_id)} ✓</span>` : '<span class="pill no">لسه</span>'}</div>
-      ${st.sender_ready ? '' : '<div class="item"><span class="err">خدمة الإرسال (pg_net) مش متفعلة في قاعدة البيانات</span></div>'}
-    </div>
-    ${ready ? `<div class="row2">
-        <label class="f" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="tg-l" style="width:auto"${st.notify_leads ? ' checked' : ''}> ابعت مع كل طلب عميل جديد</label>
-        <label class="f" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="tg-s" style="width:auto"${st.notify_sales ? ' checked' : ''}> ابعت مع كل بيعة جديدة</label></div>
-      <div class="actions"><button class="btn" id="tg-test">ابعت رسالة تجربة</button><button class="btn ghost sm" id="tg-redo">غيّر البوت أو الجروب</button></div>` : ''}
-    <div id="tg-setup" ${ready ? 'hidden' : ''} style="display:grid;gap:12px">
-      <ol style="margin:0;padding-inline-start:20px;display:grid;gap:6px">
-        <li>في تليجرام افتح <b class="ltr">@BotFather</b>، وابعت <b class="ltr">/newbot</b>، واختار اسم للبوت (مثلًا Clan Sales Bot).</li>
-        <li>BotFather هيبعتلك <b>مفتاح</b> شكله كده: <span class="ltr">123456789:AAH…</span> انسخه.</li>
-        <li>اعمل جروب للإدارة (أو استخدم جروب موجود)، وضيف البوت فيه، وابعت أي رسالة في الجروب.</li>
-        <li>الزق المفتاح هنا ودوس «احفظ»، وبعدين «دوّر على الجروب».</li>
-      </ol>
-      <p class="muted" style="font-size:13.5px">المفتاح بيتحفظ جوه قاعدة البيانات بس، ومحدش يقدر يشوفه تاني من الموقع، حتى إنت. ما تبعتهوش لحد.</p>
-      <div class="row2" style="grid-template-columns:1fr auto">
-        <input id="tg-token" type="password" dir="ltr" autocomplete="off" placeholder="${st.has_token ? 'المفتاح محفوظ. الزق مفتاح جديد لو عايز تغيّره' : 'الزق مفتاح البوت هنا'}">
-        <button class="btn" id="tg-save">احفظ</button>
-      </div>
-      <div class="actions"><button class="btn ghost" id="tg-detect"${st.has_token ? '' : ' disabled'}>دوّر على الجروب</button></div>
-      <div class="list" id="tg-chats"></div>
-    </div>
-    <div class="err" id="tg-err" hidden></div>`;
-  const err = m => showErr($('#tg-err', box), m);
-  const again = () => telegramCard(box);
-  const on = (sel, ev, fn) => { const el = $(sel, box); if (el) el.addEventListener(ev, fn); };
-  on('#tg-redo', 'click', () => { $('#tg-setup', box).hidden = false; });
-  on('#tg-save', 'click', async e => {
-    err(''); const t = $('#tg-token', box).value.trim();
-    if (!t) return err('الزق مفتاح البوت الأول');
-    try { await busy(e.target, '…', () => rpc('super_telegram_save', { p_token: t })); $('#tg-token', box).value = ''; toast('المفتاح اتحفظ ✓ دوّر على الجروب'); again(); }
-    catch (m) { err(m); }
-  });
-  on('#tg-detect', 'click', async e => {
-    err(''); const list = $('#tg-chats', box);
-    try {
-      await busy(e.target, 'بندوّر…', async () => {
-        const req = await rpc('super_telegram_detect');
-        let r = { pending: true };
-        for (let i = 0; i < 10 && r.pending; i++) { await new Promise(x => setTimeout(x, 1000)); r = await rpc('super_telegram_detect_result', { p_req: req }); }
-        if (r.pending) throw 'تليجرام ما ردّش. جرّب تاني';
-        if (r.error) throw r.error;
-        const chats = (r.chats || []).filter(c => c.type !== 'private');
-        list.innerHTML = chats.length ? chats.map(c => `<div class="item"><span>${esc(c.title)} <span class="sub ltr">${esc(c.id)}</span></span><button class="btn sm gold" data-chat="${esc(c.id)}" data-title="${esc(c.title)}">اختار الجروب ده</button></div>`).join('')
-          : '<p class="note">مش لاقي أي جروب. اتأكد إنك ضفت البوت للجروب وبعت رسالة فيه بعدها، وجرّب تاني.</p>';
-      });
-    } catch (m) { err(m); }
-  });
-  on('#tg-chats', 'click', async e => {
-    const b = e.target.closest('[data-chat]'); if (!b) return;
-    try { await rpc('super_telegram_save', { p_chat_id: b.dataset.chat, p_chat_title: b.dataset.title }); toast('الجروب اتحفظ ✓ ابعت رسالة تجربة'); again(); }
-    catch (m) { err(m); }
-  });
-  on('#tg-test', 'click', async e => {
-    err('');
-    try { await busy(e.target, 'بنبعت…', () => rpc('super_telegram_test')); toast('اتبعتت ✓ بص على الجروب'); }
-    catch (m) { err(m); }
-  });
-  ['#tg-l', '#tg-s'].forEach(s => on(s, 'change', async () => {
-    try { await rpc('super_telegram_save', { p_notify_leads: $('#tg-l', box).checked, p_notify_sales: $('#tg-s', box).checked }); toast('اتحفظ ✓'); }
-    catch (m) { err(m); }
-  }));
-}
-
 /* ================= طلبات العملاء ================= */
 const LEAD_ST = { new: 'جديد', contacted: 'اتكلمنا معاه', negotiating: 'بنتفاوض', won: 'تم الديل ✓', lost: 'مش مهتم' };
 const LEAD_CLS = { new: 'mid', contacted: 'mid', negotiating: 'gold', won: 'ok', lost: 'no' };
 const leadPill = s => `<span class="pill ${LEAD_CLS[s] || 'mid'}">${esc(LEAD_ST[s] || s)}</span>`;
+// مصدر العميل: الفريق بيشوف كل المصادر، والمسوق بيشوف من رابطه أو اتصل بكوده
+const SRC_STAFF = { marketer: '👤 المسوق سجّله', link: '🔗 من الرابط', call: '📞 من الكول سنتر' };
+const SRC_MK = { link: '🔗 من رابطك', call: '📞 اتصل وقال كودك' };
+const srcPill = (s, map) => s && s !== 'marketer' && map[s] ? `<span class="pill gold">${map[s]}</span>` : '';
 const chips = arr => `<span class="chips">${(arr || []).map(x => `<span class="chip">${esc(x)}</span>`).join('')}</span>`;
 const PICKABLE = () => SERVICES.filter(s => s !== 'أكتر من خدمة');
 
@@ -1344,7 +1599,7 @@ async function leadsPage() {
     </div>
     <div class="list">${rows.length ? rows.map(r => `
       <div class="item"><div class="main"><b>${esc(r.client_name)}${r.business ? ' · ' + esc(r.business) : ''}</b>
-        <span class="sub"><span class="ltr">${esc(r.client_phone)}</span> · ${esc(r.country)} · اتسجل ${fdate(r.created_at)}</span>
+        <span class="sub"><span class="ltr">${esc(r.client_phone)}</span> · ${esc(r.country)} · اتسجل ${fdate(r.created_at)}${r.source && r.source !== 'marketer' ? ' · ' + srcPill(r.source, SRC_MK) : ''}</span>
         ${chips(r.services)}</div>
         <div class="end">${leadPill(r.status)}${r.commission ? `<span class="amt">+${money(r.commission)}</span>` : ''}</div></div>`).join('')
       : '<p class="empty">لسه ما سجلتش عملا. أول عميل مهتم، سجّله من الفورم اللي فوق.</p>'}</div>
@@ -1370,6 +1625,27 @@ async function aLeadsPage() {
   <div class="card">
     <div class="stack"><h1>طلبات العملا</h1><p class="lead">${isSuper() ? 'كل العملا اللي المسوقين سجّلوهم.' : isAdmin() ? 'الطلبات اللي لسه ما اتوزعتش، واللي عندك وعند موظفينك.' : 'الطلبات اللي متوزعة عليك.'} افتح أي طلب عشان تغيّر حالته${isAdmin() ? ' أو توزّعه' : ''}.</p></div>
     <div class="seg" id="lt">${TABS.map(([k, l]) => `<button type="button" data-s="${k}"${k === st ? ' class="on"' : ''}>${l} <span class="cnt" data-c="${k}"></span></button>`).join('')}</div>
+    <details class="callbox" id="cc">
+      <summary><span><b>📞 عميل اتصل وقال كود مسوق؟</b><small class="muted">سجّله هنا، والطلب يتحسب للمسوق ويبقى معاك</small></span></summary>
+      <form id="cf" novalidate>
+        <label class="f">كود المسوق اللي العميل قاله<input id="cf-code" dir="ltr" autocomplete="off" placeholder="M001"></label>
+        <div class="peek" id="cf-peek" hidden></div>
+        <div class="row2">
+          <label class="f">اسم العميل<input id="cf-name" autocomplete="off"></label>
+          <label class="f">موبايل العميل<input id="cf-phone" type="tel" inputmode="tel" dir="ltr" placeholder="01xxxxxxxxx أو +966…"></label>
+        </div>
+        <div class="row2">
+          <label class="f">اسم البيزنس <span class="opt">(اختياري)</span><input id="cf-biz"></label>
+          <label class="f">البلد<input id="cf-country" value="مصر"></label>
+        </div>
+        <div class="stack" style="font-weight:600;font-size:14px">العميل محتاج إيه؟
+          <div class="svc-pick" id="cf-svc">${PICKABLE().map(s => `<label><input type="checkbox" value="${esc(s)}">${esc(s)}</label>`).join('')}</div>
+        </div>
+        <label class="f">ملاحظات الفريق <span class="opt">(مش بتظهر للمسوق)</span><textarea id="cf-notes" rows="2"></textarea></label>
+        <div class="err" id="cf-err" hidden></div>
+        <button class="btn gold" id="cf-btn">سجّل الطلب</button>
+      </form>
+    </details>
     <form id="lq" novalidate class="row3" style="align-items:end">
       <label class="f">بحث <span class="opt">(عميل، بيزنس، موبايل)</span><input id="lq-q"></label>
       <label class="f">كود المسوق<input id="lq-code" dir="ltr" placeholder="الكل"></label>
@@ -1390,22 +1666,23 @@ async function aLeadsPage() {
   let data = {};
   const row = r => `
     <tr data-id="${r.id}" class="lrow">
-      <td class="ltr">${esc(r.id)}</td>
-      <td><b>${esc(r.client_name)}</b>${r.business ? `<div class="sub">${esc(r.business)}</div>` : ''}<div class="sub ltr">${esc(r.client_phone)}</div></td>
-      <td>${chips(r.services)}</td>
-      <td>${esc(firstName(r.marketer_name))} <span class="sub ltr">${esc(r.code)}</span></td>
-      <td>${r.assigned_name ? esc(firstName(r.assigned_name)) : '<span class="sub">مش متوزع</span>'}</td>
-      <td>${leadPill(r.status)}</td>
-      <td class="amt">${r.commission ? money(r.commission) : '—'}</td>
-      <td class="sub">${fdate(r.created_at)}</td>
-      <td><button type="button" class="btn sm ghost" data-open="${r.id}">افتح</button></td>
+      <td class="ltr c-id">${esc(r.id)}</td>
+      <td class="c-client"><b>${esc(r.client_name)}</b> ${srcPill(r.source, SRC_STAFF)}${r.business ? `<div class="sub">${esc(r.business)}</div>` : ''}<div class="sub ltr">${esc(r.client_phone)}</div></td>
+      <td data-l="الخدمات">${chips(r.services)}</td>
+      <td data-l="المسوق">${esc(firstName(r.marketer_name))} <span class="sub ltr">${esc(r.code)}</span></td>
+      <td data-l="ماسكه">${r.assigned_name ? esc(firstName(r.assigned_name)) : '<span class="sub">مش متوزع</span>'}</td>
+      <td data-l="الحالة" class="c-status">${leadPill(r.status)}</td>
+      <td data-l="العمولة" class="amt">${r.commission ? money(r.commission) : '—'}</td>
+      <td data-l="اتسجل" class="sub">${fdate(r.created_at)}</td>
+      <td class="c-open"><button type="button" class="btn sm ghost" data-open="${r.id}">افتح</button></td>
     </tr>`;
   const editor = r => `
     <tr class="ledit" data-for="${r.id}"><td colspan="9"><div class="ledit-in">
       <div class="stack">
         <span><b>${esc(r.client_name)}</b>${r.business ? ' · ' + esc(r.business) : ''} · <span class="ltr">${esc(r.client_phone)}</span> · ${esc(r.country)}</span>
         ${r.notes ? `<span class="note">ملاحظة المسوق: ${esc(r.notes)}</span>` : ''}
-        <span class="sub">اتسجل ${fdate(r.created_at)} · آخر تحديث ${fdate(r.updated_at)}${r.closed_at ? ' · اتقفل ' + fdate(r.closed_at) : ''}</span>
+        <span class="sub">المصدر: ${esc(SRC_STAFF[r.source] || SRC_STAFF.marketer)}${r.created_by_name ? ' · سجّله ' + esc(r.created_by_name) : ''} · المسوق ${esc(r.marketer_name)} <span class="ltr">${esc(r.code)}</span></span>
+        <span class="sub">اتسجل ${fdatetime(r.created_at)} · آخر تحديث ${fdate(r.updated_at)}${r.closed_at ? ' · اتقفل ' + fdate(r.closed_at) : ''}</span>
       </div>
       <div class="row3">
         <label class="f">الحالة<select data-f="status">${Object.keys(LEAD_ST).map(k => `<option value="${k}"${k === r.status ? ' selected' : ''}>${LEAD_ST[k]}</option>`).join('')}</select></label>
@@ -1455,6 +1732,34 @@ async function aLeadsPage() {
   $('#lq-code').addEventListener('change', () => run(false));
   if ($('#lq-as')) $('#lq-as').addEventListener('change', () => run(false));
   $('#l-more').addEventListener('click', () => { off += 50; run(true); });
+
+  // الكول سنتر: نتأكد من الكود ونعرض اسم المسوق قبل التسجيل
+  let peekSeq = 0;
+  const peekCode = async () => {
+    const code = $('#cf-code').value.trim(), box = $('#cf-peek'), my = ++peekSeq;
+    if (!code) { box.hidden = true; return; }
+    try {
+      const m = await rpc('staff_find', { p_code: code }); if (my !== peekSeq) return;
+      box.className = 'peek ' + (m.status === 'active' ? 'ok' : 'no'); box.hidden = false;
+      box.innerHTML = m.status === 'active' ? `✓ المسوق: <b>${esc(m.name)}</b> <span class="ltr">${esc(m.code)}</span> · ${esc(m.gov || '')}` : `⚠️ ${esc(m.name)} (${esc(m.code)}) موقوف. كلّم الأدمن.`;
+    } catch (m) { if (my !== peekSeq) return; box.className = 'peek no'; box.hidden = false; box.textContent = m; }
+  };
+  let tp; $('#cf-code').addEventListener('input', () => { clearTimeout(tp); tp = setTimeout(peekCode, 350); });
+  $('#cf').addEventListener('submit', async e => {
+    e.preventDefault(); showErr($('#cf-err'), '');
+    const services = $$('#cf-svc input:checked').map(x => x.value);
+    const a = { p_code: $('#cf-code').value.trim(), p_client: $('#cf-name').value.trim(), p_phone: $('#cf-phone').value, p_business: $('#cf-biz').value,
+      p_country: $('#cf-country').value, p_services: services, p_staff_notes: $('#cf-notes').value };
+    if (!a.p_code) return showErr($('#cf-err'), 'اكتب كود المسوق اللي العميل قاله');
+    if (a.p_client.length < 2) return showErr($('#cf-err'), 'اكتب اسم العميل');
+    if (!services.length) return showErr($('#cf-err'), 'اختار خدمة واحدة على الأقل');
+    try {
+      const r = await busy($('#cf-btn'), 'بنسجّل…', () => rpc('staff_add_lead', a));
+      toast(`اتسجل طلب #${r.id} باسم ${firstName(r.marketer)} (${r.code}) ✓`);
+      $('#cf').reset(); $('#cf-country').value = 'مصر'; $('#cf-peek').hidden = true; $('#cc').open = false;
+      await loadMe().catch(() => {}); renderNav('a-leads'); run(false);
+    } catch (m) { showErr($('#cf-err'), m); }
+  });
   run(false);
 }
 
