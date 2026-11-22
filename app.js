@@ -1649,7 +1649,7 @@ async function aLeadsPage() {
     <form id="lq" novalidate class="row3" style="align-items:end">
       <label class="f">بحث <span class="opt">(عميل، بيزنس، موبايل)</span><input id="lq-q"></label>
       <label class="f">كود المسوق<input id="lq-code" dir="ltr" placeholder="الكل"></label>
-      ${isAdmin() ? `<label class="f">ماسكه<select id="lq-as"><option value="">الكل</option><option value="none">مش متوزع</option>${team.map(t => `<option value="${esc(t.code)}">${esc(t.name)}</option>`).join('')}</select></label>` : '<span></span>'}
+      ${isAdmin() ? `<label class="f">الكول سنتر<select id="lq-as"><option value="">الكل</option><option value="none">مش متوزع</option>${team.map(t => `<option value="${esc(t.code)}">${esc(t.name)}</option>`).join('')}</select></label>` : '<span></span>'}
       <button class="btn" id="lq-go" style="display:none">اعرض</button>
     </form>
   </div>
@@ -1657,7 +1657,7 @@ async function aLeadsPage() {
     <div class="stats" id="l-sum"></div>
     <div class="err" id="l-err" hidden></div>
     <div class="tablewrap"><table class="tbl" id="l-tbl">
-      <thead><tr><th>#</th><th>العميل</th><th>الخدمات</th><th>المسوق</th><th>ماسكه</th><th>الحالة</th><th>العمولة</th><th>اتسجل</th><th></th></tr></thead>
+      <thead><tr><th>#</th><th>العميل</th><th>الخدمات</th><th>المسوق</th><th>الكول سنتر</th><th>الحالة</th><th>العمولة</th><th>اتسجل</th><th></th></tr></thead>
       <tbody></tbody></table></div>
     <p class="empty" id="l-empty" hidden>مفيش طلبات هنا.</p>
     <button type="button" class="btn ghost sm" id="l-more" hidden>اعرض أكتر</button>
@@ -1670,7 +1670,7 @@ async function aLeadsPage() {
       <td class="c-client"><b>${esc(r.client_name)}</b> ${srcPill(r.source, SRC_STAFF)}${r.business ? `<div class="sub">${esc(r.business)}</div>` : ''}<div class="sub ltr">${esc(r.client_phone)}</div></td>
       <td data-l="الخدمات">${chips(r.services)}</td>
       <td data-l="المسوق">${esc(firstName(r.marketer_name))} <span class="sub ltr">${esc(r.code)}</span></td>
-      <td data-l="ماسكه">${r.assigned_name ? esc(firstName(r.assigned_name)) : '<span class="sub">مش متوزع</span>'}</td>
+      <td data-l="الكول سنتر">${r.assigned_name ? esc(firstName(r.assigned_name)) : '<span class="sub">مش متوزع</span>'}</td>
       <td data-l="الحالة" class="c-status">${leadPill(r.status)}</td>
       <td data-l="العمولة" class="amt">${r.commission ? money(r.commission) : '—'}</td>
       <td data-l="اتسجل" class="sub">${fdate(r.created_at)}</td>
@@ -1686,7 +1686,7 @@ async function aLeadsPage() {
       </div>
       <div class="row3">
         <label class="f">الحالة<select data-f="status">${Object.keys(LEAD_ST).map(k => `<option value="${k}"${k === r.status ? ' selected' : ''}>${LEAD_ST[k]}</option>`).join('')}</select></label>
-        ${isAdmin() ? `<label class="f">ماسكه<select data-f="assign">${staffOpts(r.assigned_code)}</select></label>` : '<span></span>'}
+        ${isAdmin() ? `<label class="f">الكول سنتر<select data-f="assign">${staffOpts(r.assigned_code)}</select></label>` : '<span></span>'}
         <label class="f">الخدمة اللي اتباعت <span class="opt">(لما يتم الديل)</span><select data-f="service">${(r.services.length > 1 ? ['أكتر من خدمة'] : []).concat(r.services, SERVICES.filter(s => !r.services.includes(s) && s !== 'أكتر من خدمة')).map(s => `<option>${esc(s)}</option>`).join('')}</select></label>
       </div>
       <label class="f">ملاحظات الفريق <span class="opt">(مش بتظهر للمسوق)</span><textarea data-f="notes" rows="2">${esc(r.staff_notes || '')}</textarea></label>
