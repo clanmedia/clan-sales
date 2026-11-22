@@ -460,6 +460,16 @@ const waNumber = p => { const d = String(p || '').replace(/\D/g, ''); return d.s
 const telNumber = p => '+' + waNumber(p);
 const CALL_ICON = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg>';
 const waLink = (phone, text) => `https://wa.me/${waNumber(phone)}?text=${encodeURIComponent(text)}`;
+// رسالة الترحيب اللي الكول سنتر بيبعتها للعميل (مصر بالمصري، برة مصر بلهجة خليجية)
+function leadGreeting(r) {
+  const name = firstName(r.client_name), me = ME ? firstName(ME.name) : '';
+  const svc = (r.services || []).filter(s => s !== 'أكتر من خدمة' && s !== 'أخرى').join(' و');
+  const biz = r.business ? ` لـ ${r.business}` : '';
+  if ((r.country || 'مصر').trim() !== 'مصر') {
+    return `السلام عليكم ${name}، حيّاك الله 🌟\nمعك ${me} من فريق Clan Agency.\nوصلنا طلبك${svc ? ` بخصوص ${svc}` : ''}${biz}، ويسعدنا نخدمك.\nمتى يناسبك نتواصل ونوضح لك التفاصيل؟`;
+  }
+  return `أهلًا يا ${name} 👋\nمعاك ${me} من فريق Clan Agency.\nوصلنا طلبك${svc ? ` بخصوص ${svc}` : ''}${biz}، ومبسوطين إنك اخترتنا.\nإمتى يناسبك نتكلم ونوضحلك التفاصيل والعرض المناسب؟`;
+}
 
 async function refPage(code) {
   const brandSub = $('.brand small'); if (brandSub) brandSub.textContent = 'تسويق رقمي';
@@ -1684,6 +1694,11 @@ async function aLeadsPage() {
         <span class="sub">المصدر: ${esc(SRC_STAFF[r.source] || SRC_STAFF.marketer)}${r.created_by_name ? ' · سجّله ' + esc(r.created_by_name) : ''} · المسوق ${esc(r.marketer_name)} <span class="ltr">${esc(r.code)}</span></span>
         <span class="sub">اتسجل ${fdatetime(r.created_at)} · آخر تحديث ${fdate(r.updated_at)}${r.closed_at ? ' · اتقفل ' + fdate(r.closed_at) : ''}</span>
       </div>
+      <div class="lead-contact">
+        <a class="btn wa" data-wa href="${esc(waLink(r.client_phone, leadGreeting(r)))}" target="_blank" rel="noopener">${WA_ICON} واتساب برسالة جاهزة</a>
+        <a class="btn ghost" data-call href="tel:${esc(telNumber(r.client_phone))}">${CALL_ICON} اتصل</a>
+        <button type="button" class="btn ghost sm" data-copy="${esc(r.client_phone)}">انسخ الرقم</button>
+      </div>
       <div class="row3">
         <label class="f">الحالة<select data-f="status">${Object.keys(LEAD_ST).map(k => `<option value="${k}"${k === r.status ? ' selected' : ''}>${LEAD_ST[k]}</option>`).join('')}</select></label>
         ${isAdmin() ? `<label class="f">الكول سنتر<select data-f="assign">${staffOpts(r.assigned_code)}</select></label>` : '<span></span>'}
@@ -1723,6 +1738,7 @@ async function aLeadsPage() {
   tbody.addEventListener('click', e => {
     const o = e.target.closest('[data-open]');
     if (o) { const id = o.dataset.open, ex = $(`tr.ledit[data-for="${id}"]`); if (ex) { ex.remove(); return; } o.closest('tr').insertAdjacentHTML('afterend', editor(data[id])); return; }
+    const cp = e.target.closest('[data-copy]'); if (cp) return copyText(cp.dataset.copy);
     const s = e.target.closest('[data-save]'); if (s) return save(s.dataset.save);
     const w = e.target.closest('[data-won]'); if (w && twoStep(w, 'متأكد إن العميل دفع؟')) return save(w.dataset.won, { won: true });
   });

@@ -193,6 +193,12 @@ a.guide-cta { display: flex; align-items: center; justify-content: space-between
 .refcode { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; background: var(--surface); border: 1.5px dashed var(--brand); border-radius: 12px; padding: 10px 14px; font-weight: 600; }
 .refcode b { font: 700 26px/1.1 var(--f-display); letter-spacing: 2px; color: var(--brand); }
 @media (prefers-color-scheme: dark) { .refcode b { color: #8EB0FF; } }
+/* التواصل مع العميل من جوه الطلب */
+.lead-contact { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.lead-contact .btn svg { flex-shrink: 0; }
+.btn.wa { background: #1A8F4E; color: #FFFFFF; }
+.btn.wa:hover { background: #157A42; }
+@media (max-width: 760px) { .lead-contact .btn { flex: 1 1 auto; } .lead-contact .btn.wa { flex-basis: 100%; } }
 /* الكول سنتر */
 .callbox { border: 1.5px dashed var(--line); border-radius: 12px; background: var(--sunk); }
 .callbox[open] { border-style: solid; border-color: var(--gold); }
